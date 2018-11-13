@@ -17,6 +17,7 @@
 volatile int goalFlag = 0;
 int goalCounter = 0, prevCounter = -1;
 uint8_t helloRobotois = 1;
+uint8_t stopped = 0, stopMsg = 0;
 
 char* ssid = "robotoisAP";
 char* password = "robotois8899";
@@ -27,7 +28,7 @@ String boardColor = "white";
 String driveTopic = "score-boards/" + String(boardColor);
 String goalAction = String("goal");
 String startAction = String("start");
-String endAction = String("end");
+String stopAction = String("stop");
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -79,13 +80,13 @@ void setupWifi() {
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     #ifdef USE_SERIAL
-    Serial.println("Connecting to WiFi..");
+      Serial.println("Connecting to WiFi..");
     #endif
     delay(1000);
   }
   #ifdef USE_SERIAL
-  Serial.println("Connected to the WiFi network");
-  Serial.println(WiFi.localIP());
+    Serial.println("Connected to the WiFi network");
+    Serial.println(WiFi.localIP());
   #endif
   randomSeed(micros());
 }
@@ -99,7 +100,7 @@ void reconnect() {
     // Attempt to connect
     if (client.connect(clientId)) {
       #ifdef USE_SERIAL
-      Serial.println("connected");
+        Serial.println(" MQTT connected...");
       #endif
       // Once connected, publish an announcement...
       // client.publish("outTopic", "hello world");
@@ -107,8 +108,8 @@ void reconnect() {
       client.subscribe(driveTopic.c_str());
     } else {
       #ifdef USE_SERIAL
-      Serial.print("failed, rc=");
-      Serial.println(client.state());
+        Serial.print("failed, rc=");
+        Serial.println(client.state());
       #endif
       // //Serial.println(" try again in 5 seconds");
       // Wait 5 seconds before retrying
@@ -126,8 +127,8 @@ void mqttLoop() {
 
 void messageProcessor(char* topic, byte* payload, unsigned int length) {
   #ifdef USE_SERIAL
-  String msg = String((char*)payload);
-  Serial.println(msg);
+    String msg = String((char*)payload);
+    Serial.println(msg);
   #endif
 
   StaticJsonBuffer<200> jsonBuffer;
@@ -141,21 +142,32 @@ void messageProcessor(char* topic, byte* payload, unsigned int length) {
   if(actionStr == goalAction){
     goalFlag = root["increment"];
   }
-  if(actionStr == startAction || actionStr == endAction) {
+  if(actionStr == startAction) {
     goalFlag = 0;
     goalCounter = 0;
     prevCounter = -1;
     helloRobotois = 1;
+    stopped = 0;
+  }
+  if(actionStr == stopAction) {
+    goalFlag = 0;
+    goalCounter = 0;
+    prevCounter = -1;
+    stopped = 1;
+    stopMsg = 1;
   }
 }
 
 void setup() {
   #ifdef USE_SERIAL
-  Serial.begin(115200);
-  Serial.println("SoccerBoard");
-  Serial.setDebugOutput(true);
+    Serial.begin(115200);
+    Serial.println("SoccerBoard");
+    Serial.setDebugOutput(true);
   #endif
 
+  delay(1000);
+  matrix.fillScreen(0);
+  matrix.show();
   setupWifi();
   client.setServer(brokerAdd, 1883);
   client.setCallback(messageProcessor);
@@ -169,10 +181,9 @@ void setup() {
 
   matrix.begin();
   matrix.setTextWrap(false);
-  matrix.setBrightness(16);
+  matrix.setBrightness(25);
   matrix.setTextColor(primaryColor);
-  strip.setBrightness(16);
-  delay(2000);
+  strip.setBrightness(25);
 }
 
 // Input a value 0 to 255 to get a color value.
@@ -207,33 +218,16 @@ void theaterChaseRainbow(uint8_t wait = 30) {
   }
 }
 
-void robotois(const char* text, uint16_t textColor = purpleColor) {
+void message(const char* text, uint16_t textColor, uint8_t count = 1) {
   int pass = 0;
   int x = matrix.width();
-  while(pass < 1) {
+  int xShift = -(6.5f * x);
+  while(pass < count) {
     matrix.setTextColor(textColor);
     matrix.fillScreen(0);
     matrix.setCursor(x, 0);
     matrix.print(text);
-    if(--x < -100) {
-      x = matrix.width();
-      pass ++;
-    }
-    matrix.show();
-    delay(75);
-  }
-}
-
-void celebrate(const char* text, uint16_t textColor = redColor) {
-  int pass = 0;
-  int x = matrix.width();
-  theaterChaseRainbow();
-  while(pass < 1) {
-    matrix.setTextColor(textColor);
-    matrix.fillScreen(0);
-    matrix.setCursor(x, 0);
-    matrix.print(text);
-    if(--x < -36) {
+    if(--x < xShift) {
       x = matrix.width();
       pass ++;
     }
@@ -244,7 +238,8 @@ void celebrate(const char* text, uint16_t textColor = redColor) {
 
 void goalChange() {
   if (goalFlag == 1) {
-    celebrate("GOOL!");
+    theaterChaseRainbow();
+    message("GOOL!", redColor);
     goalCounter++;
   }
   if (goalFlag == -1 && goalCounter > 0) {
@@ -269,8 +264,18 @@ void goalPrint(uint16_t textColor = primaryColor) {
 
 void loop() {
   mqttLoop();
+  if (stopped == 1) {
+    if (stopMsg == 1) {
+      message("GAME OVER...", redColor);
+      message("www.robotois.com", purpleColor);
+      matrix.fillScreen(0);
+      matrix.show();
+      stopMsg = 0;
+    }
+    return;
+  }
   if (helloRobotois == 1) {
-    robotois("www.robotois.com");
+    message("www.robotois.com", purpleColor);
     helloRobotois = 0;
   }
   if (goalFlag != 0) {
