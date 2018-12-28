@@ -16,15 +16,21 @@
 
 volatile int goalFlag = 0;
 int goalCounter = 0, prevCounter = -1;
-uint8_t helloRobotois = 1;
+uint8_t helloRobotois = 1, initialize = 0, start = 0;
 uint8_t stopped = 0, stopMsg = 0;
 
-char* ssid = "robotoisAP";
+// Timer variables
+unsigned long currentMillis = 0;
+unsigned long prevMillis = 0;
+int seconds = 0, prevSeconds = -1, realSecs = 0;
+int minutes = 5, prevMinutes = -1;
+
+char* ssid = "robotoisAp";
 char* password = "robotois8899";
 char* brokerAdd = "192.168.50.27";
 
-char* clientId = "white-score";
-String boardColor = "white";
+char* clientId = "timer-score";
+String boardColor = "timer";
 String driveTopic = "score-boards/" + String(boardColor);
 String goalAction = String("goal");
 String startAction = String("start");
@@ -144,17 +150,15 @@ void messageProcessor(char* topic, byte* payload, unsigned int length) {
   }
   if(actionStr == startAction) {
     goalFlag = 0;
-    goalCounter = 0;
-    prevCounter = -1;
     helloRobotois = 1;
+    initialize = 1;
     stopped = 0;
   }
   if(actionStr == stopAction) {
     goalFlag = 0;
-    goalCounter = 0;
-    prevCounter = -1;
     stopped = 1;
     stopMsg = 1;
+    start = 0;
   }
 }
 
@@ -172,12 +176,7 @@ void setup() {
   client.setServer(brokerAdd, 1883);
   client.setCallback(messageProcessor);
 
-  if(boardColor == "yellow") {
-    primaryColor = yellowColor;
-  }
-  if(boardColor == "white") {
-    primaryColor = whiteColor;
-  }
+  primaryColor = greenColor;
 
   matrix.begin();
   matrix.setTextWrap(false);
@@ -218,11 +217,11 @@ void theaterChaseRainbow(uint8_t wait = 30) {
   }
 }
 
-void message(const char* text, uint16_t textColor, uint8_t count = 1) {
+void message(const char* text, uint16_t textColor, uint8_t length = 1) {
   int pass = 0;
   int x = matrix.width();
-  int xShift = -(6.5f * x);
-  while(pass < count) {
+  int xShift = -(x + length * 5);
+  while(pass < 1) {
     matrix.setTextColor(textColor);
     matrix.fillScreen(0);
     matrix.setCursor(x, 0);
@@ -232,42 +231,46 @@ void message(const char* text, uint16_t textColor, uint8_t count = 1) {
       pass ++;
     }
     matrix.show();
-    delay(75);
+    delay(70);
   }
 }
 
-void goalChange() {
+void celebrateGoal() {
   if (goalFlag == 1) {
-    theaterChaseRainbow();
-    message("GOOL!", redColor);
-    goalCounter++;
-  }
-  if (goalFlag == -1 && goalCounter > 0) {
-    goalCounter--;
+    message("GOOOL!", redColor, 6);
   }
   goalFlag = 0;
 }
 
-void goalPrint(uint16_t textColor = primaryColor) {
+void counterPrint(uint16_t textColor = primaryColor) {
   String countStr;
-  if (goalCounter < 10) {
-    countStr = "0" + String(goalCounter, DEC);
+  realSecs = 59 - seconds;
+  countStr = String(minutes, DEC) + ":";
+  if (realSecs < 10) {
+    countStr = countStr + "0" + String(realSecs, DEC);
   } else {
-    countStr = String(goalCounter, DEC);
+    countStr = countStr + String(realSecs, DEC);
   }
+  #ifdef USE_SERIAL
+    Serial.println(countStr);
+  #endif  
   matrix.setTextColor(textColor);
   matrix.fillScreen(0);
-  matrix.setCursor(3, 0);
+  // AJUSTAR AL PANEL GRANDE, PONER NUMEROS POSITIVOS
+  matrix.setCursor(-7, 0);
   matrix.print(countStr.c_str());
   matrix.show();
 }
 
 void loop() {
   mqttLoop();
+  if(goalFlag != 0) {
+    celebrateGoal();
+  }
   if (stopped == 1) {
     if (stopMsg == 1) {
-      message("GAME OVER...", redColor);
-      message("www.robotois.com", purpleColor);
+      message("GAME OVER", redColor, 12);
+      message("www.robotois.com", purpleColor, 16);
       matrix.fillScreen(0);
       matrix.show();
       stopMsg = 0;
@@ -275,14 +278,45 @@ void loop() {
     return;
   }
   if (helloRobotois == 1) {
-    message("www.robotois.com", purpleColor);
+    message("Inspark", purpleColor, 8);
     helloRobotois = 0;
   }
-  if (goalFlag != 0) {
-    goalChange();
+  if (initialize == 1) {
+    prevMillis = millis();
+    seconds = 0;
+    minutes = 1;
+    initialize = 0;
+    start = 1;
   }
-  if (prevCounter != goalCounter) {
-    goalPrint();
-    prevCounter = goalCounter;
+  if (start == 0) {
+    return;
+  }
+  counter();
+  if (minutes >= 0 && (seconds != prevSeconds || prevMinutes != minutes)) {
+    counterPrint();
+    prevSeconds = seconds;
+    prevMinutes = minutes;
+  }
+}
+
+void counter() {
+  if (minutes == -1) {
+    stopped = 1;
+    stopMsg = 1;
+    start = 0;
+    return;
+  }
+  // put your main code here, to run repeatedly:
+  currentMillis = millis(); // the number of milliseconds that have passed since boot
+  seconds = (currentMillis - prevMillis) / 1000.0f;//the number of seconds that have passed since the last time 60 seconds was reached.
+
+  if (seconds == 59) {
+    prevMillis = currentMillis;
+    minutes = minutes - 1;
+  }
+  if (seconds > 59) {
+    prevMillis = currentMillis - 59000;
+    seconds = 59 - seconds;
+    minutes = minutes - 1;
   }
 }
